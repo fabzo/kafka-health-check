@@ -62,10 +62,10 @@ func (check *HealthCheck) CheckHealth(brokerUpdates chan<- Update, clusterUpdate
 	}
 	defer check.closeConnection(manageTopic)
 
-	reportUnhealthy := func(err error) {
+	reportUnhealthy := func(err error, source string) {
 		log.Println("metadata could not be retrieved, assuming broker unhealthy:", err)
-		brokerUpdates <- Update{unhealthy, simpleStatus(unhealthy)}
-		clusterUpdates <- Update{red, simpleStatus(red)}
+		brokerUpdates <- Update{unhealthy, simpleStatus(unhealthy, source)}
+		clusterUpdates <- Update{red, simpleStatus(red, source)}
 	}
 
 	check.randSrc = rand.NewSource(time.Now().UnixNano())
@@ -78,13 +78,7 @@ func (check *HealthCheck) CheckHealth(brokerUpdates chan<- Update, clusterUpdate
 		case <-ticker.C:
 			metadata, err := check.broker.Metadata()
 			if err != nil {
-				reportUnhealthy(err)
-				continue
-			}
-
-			zkTopics, zkBrokers, err := check.getZooKeeperMetadata()
-			if err != nil {
-				reportUnhealthy(err)
+				reportUnhealthy(err, "broker-metadata")
 				continue
 			}
 
@@ -92,7 +86,7 @@ func (check *HealthCheck) CheckHealth(brokerUpdates chan<- Update, clusterUpdate
 			brokerUpdates <- newUpdate(brokerStatus, "broker")
 
 			if brokerStatus.Status == unhealthy {
-				clusterUpdates <- Update{red, simpleStatus(red)}
+				clusterUpdates <- Update{red, simpleStatus(red, "broker")}
 				log.Info("closing connection and reconnecting")
 				if err := check.reconnect(stop); err != nil {
 					log.Info("error while reconnecting:", err)
@@ -100,6 +94,12 @@ func (check *HealthCheck) CheckHealth(brokerUpdates chan<- Update, clusterUpdate
 				}
 				log.Info("reconnected")
 			} else {
+				zkTopics, zkBrokers, err := check.getZooKeeperMetadata()
+				if err != nil {
+					reportUnhealthy(err, "zookeeper-metadata")
+					continue
+				}
+
 				clusterStatus := check.checkClusterHealth(metadata, zkTopics, zkBrokers)
 				clusterUpdates <- newUpdate(clusterStatus, "cluster")
 			}
@@ -113,7 +113,7 @@ func newUpdate(report StatusReport, name string) Update {
 	data, err := report.Json()
 	if err != nil {
 		log.Warn("Error while marshaling %s status: %s", name, err.Error())
-		data = simpleStatus(report.Summary())
+		data = simpleStatus(report.Summary(), "test")
 	}
 	return Update{report.Summary(), data}
 }

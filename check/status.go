@@ -58,8 +58,8 @@ type BrokerMetadata struct {
 	Problem string `json:"problem"`
 }
 
-func simpleStatus(status string) []byte {
-	return []byte(fmt.Sprintf(`{"status": "%s"}`, status))
+func simpleStatus(status string, source string) []byte {
+	return []byte(fmt.Sprintf(`{"status": "%s", "source": "%s"}`, status, source))
 }
 
 func (s BrokerStatus) Summary() string {
